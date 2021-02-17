@@ -60,7 +60,7 @@ func resourceApplication() *schema.Resource {
 			},
 			"constant_attribute": {
 				Description: "TODO",
-				Required:    true,
+				Optional:    true,
 				Type:        schema.TypeSet,
 				Elem:        resourceConstantAttributeSetting(),
 				Set:         optionConstantAttributeValueHash,
@@ -70,6 +70,23 @@ func resourceApplication() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
+			"idp_entity_id": {
+				Description: "Also referred to as the 'Issuer', this is the unique, case-sensitive identifier used by JumpCloud for this service provider",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
+			"sp_entity_id": {
+				Description: "Also referred to as the 'Audience', this is the unique, case-sensitive identifier by this service provider.",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
+			"acs_url": {
+				Description: "Assertion Consumer Service URL, also referred to as the 'Recipient'.",
+				Type:        schema.TypeString,
+				Optional:    true,
+			},
+			// TODO get idpInitUrl once the SDK supports it
+
 		},
 	}
 }
@@ -127,19 +144,36 @@ func resourceApplicationRead(_ context.Context, d *schema.ResourceData, meta int
 	if err := d.Set("sso_url", response.SsoUrl); err != nil {
 		return diag.FromErr(err)
 	}
-
-	allConstantAttributeValues := response.Config.ConstantAttributes.Value
-	var elements []interface{}
-	for _, el := range allConstantAttributeValues {
-		v := map[string]interface{}{
-			"name":  el.Name,
-			"value": el.Value,
+	if _, ok := d.GetOk("idp_entity_id"); ok {
+		if err := d.Set("idp_entity_id", response.Config.IdpEntityId.Value); err != nil {
+			return diag.FromErr(err)
 		}
-		elements = append(elements, v)
 	}
-	updatedConstantAttributes := schema.NewSet(optionConstantAttributeValueHash, elements)
-	if err := d.Set("constant_attribute", updatedConstantAttributes.List()); err != nil {
-		return diag.FromErr(err)
+	if _, ok := d.GetOk("sp_entity_id"); ok {
+		if err := d.Set("sp_entity_id", response.Config.SpEntityId.Value); err != nil {
+			return diag.FromErr(err)
+		}
+	}
+	if _, ok := d.GetOk("acs_url"); ok {
+		if err := d.Set("acs_url", response.Config.AcsUrl.Value); err != nil {
+			return diag.FromErr(err)
+		}
+	}
+
+	if _, ok := d.GetOk("constant_attribute"); ok {
+		allConstantAttributeValues := response.Config.ConstantAttributes.Value
+		var elements []interface{}
+		for _, el := range allConstantAttributeValues {
+			v := map[string]interface{}{
+				"name":  el.Name,
+				"value": el.Value,
+			}
+			elements = append(elements, v)
+		}
+		updatedConstantAttributes := schema.NewSet(optionConstantAttributeValueHash, elements)
+		if err := d.Set("constant_attribute", updatedConstantAttributes.List()); err != nil {
+			return diag.FromErr(err)
+		}
 	}
 
 	if response.Id != "" {
@@ -192,26 +226,41 @@ func resourceApplicationDelete(_ context.Context, d *schema.ResourceData, meta i
 }
 
 func generateAwsPayload(d *schema.ResourceData) jcapiv1.Application {
-	constantAttributes := d.Get("constant_attribute").(*schema.Set)
-	payload := []jcapiv1.ApplicationConfigConstantAttributesValue{}
+	if v, ok := d.GetOk("constant_attribute"); ok {
+		constantAttributes := v.(*schema.Set)
+		payload := []jcapiv1.ApplicationConfigConstantAttributesValue{}
 
-	for _, constantAttribute := range constantAttributes.List() {
-		v := jcapiv1.ApplicationConfigConstantAttributesValue{
-			Name:  constantAttribute.(map[string]interface{})["name"].(string),
-			Value: constantAttribute.(map[string]interface{})["value"].(string),
+		for _, constantAttribute := range constantAttributes.List() {
+			v := jcapiv1.ApplicationConfigConstantAttributesValue{
+				Name:  constantAttribute.(map[string]interface{})["name"].(string),
+				Value: constantAttribute.(map[string]interface{})["value"].(string),
+			}
+			payload = append(payload, v)
 		}
-		payload = append(payload, v)
+		return jcapiv1.Application{
+			Beta:         false,
+			Name:         d.Get("name").(string),
+			DisplayLabel: d.Get("display_label").(string),
+			SsoUrl:       d.Get("sso_url").(string),
+			Config: &jcapiv1.ApplicationConfig{
+				ConstantAttributes: &jcapiv1.ApplicationConfigConstantAttributes{
+					Value: payload,
+				},
+			},
+		}
+	} else {
+		return jcapiv1.Application{
+			Beta:         true,
+			Name:         d.Get("name").(string),
+			DisplayLabel: d.Get("display_label").(string),
+			SsoUrl:       d.Get("sso_url").(string),
+			Config: &jcapiv1.ApplicationConfig{
+				IdpEntityId: &jcapiv1.ApplicationConfigAcsUrl{Value: d.Get("idp_entity_id").(string)},
+				SpEntityId:  &jcapiv1.ApplicationConfigAcsUrl{Value: d.Get("sp_entity_id").(string)},
+				AcsUrl:      &jcapiv1.ApplicationConfigAcsUrl{Value: d.Get("acs_url").(string)},
+				// TODO set idpInitUrl once the SDK supports it
+			},
+		}
 	}
 
-	return jcapiv1.Application{
-		Beta:         false,
-		Name:         d.Get("name").(string),
-		DisplayLabel: d.Get("display_label").(string),
-		SsoUrl:       d.Get("sso_url").(string),
-		Config: &jcapiv1.ApplicationConfig{
-			ConstantAttributes: &jcapiv1.ApplicationConfigConstantAttributes{
-				Value: payload,
-			},
-		},
-	}
 }

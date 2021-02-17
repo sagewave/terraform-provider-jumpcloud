@@ -36,6 +36,34 @@ func Test_resourceApplication(t *testing.T) {
 	})
 }
 
+func Test_testIdPApplication(t *testing.T) {
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck: func() {
+		},
+		ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{
+			// Create cognito
+			{
+				Config: fmt.Sprintf(`
+resource "jumpcloud_application" "example_cognito_app" {
+	name  				 = "amazoncognitouserpools"
+	display_label        = "test_cognito_account"
+	sso_url              = "https://sso.jumpcloud.com/saml2/amazoncognitouserpools"
+   	idp_entity_id		 = "eu-central-1_UTFpIZF4F"
+	sp_entity_id		 = "urn:amazon:cognito:sp:eu-central-1_UTFpIZF4F"
+	acs_url				 = "https://sagwave.auth.eu-central-1.amazoncognito.com"
+}
+`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("jumpcloud_application.example_cognito_app", "display_label", "test_cognito_account"),
+					resource.TestCheckResourceAttr("jumpcloud_application.example_cognito_app", "idp_entity_id", "eu-central-1_UTFpIZF4F"),
+				),
+			},
+			userImportStep("jumpcloud_application.example_cognito_app"),
+		},
+	})
+}
+
 func testApplicationConfig(randSuffix string, displayLabel string) string {
 	return fmt.Sprintf(`
 resource "jumpcloud_application" "example_app" {
